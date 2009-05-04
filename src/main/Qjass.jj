@@ -1,0 +1,983 @@
+/**
+ * JavaCC file
+ */
+ 
+options {
+  JDK_VERSION = "1.5";
+  //LOOKAHEAD = 2; 
+  //DEBUG_PARSER  = true;
+  //DEBUG_LOOKAHEAD = true;
+  //DEBUG_TOKEN_MANAGER = true;
+  
+}
+PARSER_BEGIN(Qjass)
+package main;
+
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Stack;
+
+/** Simple brace matcher. */
+public class Qjass {
+	static QCompiler comp;
+	/** Main entry point. */
+	public static void main(String args[]) throws ParseException {
+		comp = new QCompiler(args);
+		comp.parse();
+		
+		System.out.println("Parsing done.");
+		System.out.println("Good Bye!");
+	}
+	
+	static Stack<Integer> statusStack = new Stack<Integer>();
+	final static int STATUS_FILE = 0; 
+	final static int STATUS_FUNCTION = 1;
+	int status = STATUS_FILE;
+	
+	
+
+}
+
+PARSER_END(Qjass)
+
+
+
+
+
+JAVACODE
+void error_skipto(int kind) {
+  ParseException e = generateParseException();  // generate the exception object.
+  
+  CompilerError err = new CompilerError(e, "Syntax-Error :\n" + e.getMessage());
+  err.isSyntaxError = true;
+  
+  //System.out.println("Skipping line ...");
+  //System.out.println(e.toString());  // print the error message
+  //System.out.println(e.getMessage());  // print the error message
+  //e.printStackTrace();
+  Token t;
+  do {
+    t = getNextToken();
+  } while (t.kind != kind);
+   
+	consumeNewlines();
+   
+    // The above loop consumes tokens all the way up to a token of
+    // "kind".  We use a do-while loop rather than a while because the
+    // current token is the one immediately before the erroneous token
+    // (in our case the token immediately before what should have been
+    // "if"/"while".
+}
+
+/** Root production. */
+void Input() :
+{}
+{
+  try {
+  	File()
+  } catch (ParseException e) {
+  		System.out.println("Error in Input, could not read File...");
+		error_skipto(NEWLINE);
+		File();
+	}
+}
+
+
+void File() :
+{}
+{
+	{statusStack.push(STATUS_FILE);}
+	( 
+			GlobalBlock() 
+			| library()
+			| scope()
+			| struct()
+			| LOOKAHEAD(2) functiondec()
+			| nativefunctiondec()
+			| typedec()
+			| <NEWLINE> 
+			| <EOF> { return; /*end of file*/}
+			| error_skipto(NEWLINE) 
+				
+	)* 
+	
+}
+
+
+
+
+void scopecontent() :
+{}
+{
+	( 
+			GlobalBlock() 
+			| scope()
+			| struct()
+			| LOOKAHEAD(2) functiondec()
+			| <NEWLINE> 
+	)* 	
+}
+
+void struct():
+{
+	
+}
+{
+	"struct" name=<ID> 
+	[ 
+		"extends" ext=<ID>
+		| "[" indexspace=integer() "]"
+	]
+	<NEWLINE>
+	
+	structcontent()
+	
+	
+	"endstruct" <NEWLINE>
+	
+}
+
+void structcontent():
+{
+}
+{
+	structmemberdec()
+	| methoddec()
+}
+
+void structmemberdec():
+{
+	Token varname;
+	Token typename;
+	Global glob;
+	ExprInteger size;
+	List<Integer> arraysize = new LinkedList<Integer>();
+	boolean array = false;
+	boolean constant = false;
+	Expression exp = null;
+	Scopemodifier s;
+}
+{
+	
+		s=scopemodifier()
+		["constant" {constant = true;}]
+		typename=Identifier() 
+		["array" {array = true;}] 
+		varname=Identifier()
+		(
+			"[" size=integer() "]"	{ arraysize.add(size.val); } 
+		)*	
+		[ "=" exp=expr() ]
+		{ 
+			glob = new Global(s, constant, varname, typename, array, arraysize, exp);
+		}
+	
+}
+
+
+Function methoddec():
+{
+	Scopemodifier scopemodifier;
+	Function func;
+	boolean constant = false;
+	List<Parameter> parameters;
+	Token funcname;
+	Token returntype;
+	List<Local> locals;
+	List<Statement> body;
+	Token t;
+}
+{
+	scopemodifier = scopemodifier()
+	[ "constant" { constant = true; }]
+	"method" 
+	funcname=<ID>
+	"takes"
+	parameters = parameterdec()
+	"returns"
+	(returntype="nothing"|returntype=<ID>)
+	<NEWLINE>	
+			{ func = new Function(scopemodifier, constant, funcname, parameters, returntype); }		
+	locals=functionlocals()
+	body=statementlist()
+	(
+		"endmethod"
+			{	
+				func.finish(locals, body); 
+				return func;
+			}
+		| (t="scope"|t="library"|t="struct"|t="function"|t="method")
+			{	
+				new CompilerError(t, "Encountered " + t + " in Method. Missing endfunction?"
+								+ "\nThe parser is not yes able to really recover from this error "
+								+ "so ignore all following errors." );
+				func.finish(locals, body); 
+				return func;
+			}
+	)
+}
+
+
+void nativefunctiondec():
+{
+	Token funcname;
+	List<Parameter> parameters;
+	boolean constant = false;
+	Token returntype;
+}
+{
+	[ "constant" {constant=true;} ]
+	"native"
+	funcname=<ID> 
+	"takes"
+	parameters = parameterdec()
+	"returns"
+	(returntype="nothing"|returntype=<ID>)
+		{ new Function(Scopemodifier.ScopeDefault, constant, funcname, parameters, returntype); }	
+}
+
+void typedec():
+{
+	Token n;
+	Token t;
+}
+{
+	"type" n=<ID> "extends" t=<ID>
+		{new Type(n.image, Type.search(t.image), Scopemodifier.ScopeDefault);}	
+}
+
+void scope():
+{
+	Token n;
+	Token i=null;
+}
+{
+	"scope" n=<ID> [ "initializer" i=<ID> ] <NEWLINE>	
+							{
+								if (i != null) {
+									new Scope(n.image, i.image);
+								} else {
+									new Scope(n.image);
+								}
+							}
+		scopecontent()
+	"endscope" <NEWLINE>	{ Scope.current = Scope.current.parentScope; }
+}
+
+void library():
+{
+	Token n;
+	Token i=null;
+	Token r;
+	List<Token> reqs = new LinkedList<Token>();
+	
+}
+{
+	"library" n=<ID> [ "initializer" i=<ID> ] 
+		[
+			("requires"|"uses"|"needs") r=<ID> {reqs.add(r);}
+			( 
+				"," r=<ID> {reqs.add(r);}
+			
+			)*
+		]
+		<NEWLINE>
+							{
+								if (i != null) {
+									new Library(n.image, i, reqs);
+								} else {
+									new Library(n.image, reqs);
+								}
+							}
+		scopecontent()
+	"endlibrary" <NEWLINE>	{ Scope.current = Scope.current.parentScope; }
+}
+
+Function functiondec():
+{
+	Scopemodifier scopemodifier;
+	Function func;
+	boolean constant = false;
+	List<Parameter> parameters;
+	Token funcname;
+	Token returntype;
+	List<Local> locals;
+	List<Statement> body;
+	Token t;
+}
+{
+	scopemodifier = scopemodifier()
+	[ "constant" { constant = true; }]
+	"function" 
+	funcname=<ID>
+	"takes"
+	parameters = parameterdec()
+	"returns"
+	(returntype="nothing"|returntype=<ID>)
+	<NEWLINE>	
+			{ func = new Function(scopemodifier, constant, funcname, parameters, returntype); }		
+	locals=functionlocals()
+	body=statementlist()
+	(
+		"endfunction"
+			{	
+				func.finish(locals, body); 
+				return func;
+			}
+		| (t="scope"|t="library"|t="struct"|t="function")
+			{	
+				new CompilerError(t, "Encountered " + t + " in Function. Missing endfunction?"
+								+ "\nThe parser is not yes able to really recover from this error "
+								+ "so ignore all following errors." );
+				func.finish(locals, body); 
+				return func;
+			}
+	)
+}
+
+Scopemodifier scopemodifier():
+{
+}
+{
+	"private" {return Scopemodifier.ScopePrivate; }
+	| "public" {return Scopemodifier.ScopePublic; }
+	| {return Scopemodifier.ScopeDefault; }	
+}
+
+List<Local> functionlocals():
+{
+	List<Local> ll = new LinkedList<Local>();
+	Token t;
+	Token n;
+	boolean array = false;
+	Expression exp = null;
+}
+{
+	(	{array=false;exp=null;}
+		(
+			<NEWLINE>
+			| "local" t=<ID> 
+			  [ "array"  { array = true; } ]
+			  n=<ID>
+			  [ "=" exp=expr() ]
+			  <NEWLINE>
+			 	{ ll.add(new Local(t,array,n,exp)); }
+		)
+	)*
+	{ return ll; }
+}
+
+List<Statement> statementlist():
+{
+	List<Statement> ls = new LinkedList<Statement>();
+	Statement s;
+	Expression e = null;
+}
+{
+	(
+		s=statement(ls) { ls.add(s); }
+		| <NEWLINE>
+	)*
+	[
+		"return" [ e=expr() ] <NEWLINE> { ls.add(new StatementReturn(e,ls)); }
+		["return" [ e=expr() ] { /*return-bug*/ }]
+	]
+		{ return ls; } 
+}
+
+Statement statement(List<Statement> ls):
+{
+	Statement s;
+	Expression e;
+	Expression l;
+}
+{
+	try {
+		"set" l=dynamic() "=" e=expr() <NEWLINE>	{ return new StatementSet(l,e,ls); }
+		| "call" e=dynamic() <NEWLINE>		{ return new StatementCall(e,ls); }
+		| "exitwhen" e=expr() <NEWLINE>		{ return new StatementExitwhen(e,ls); }
+		| s=ifblock(ls)						{ return s; }
+		| s=loopblock(ls)						{ return s; }
+		| ( l=dynamic() 
+			( 
+				<NEWLINE> { new CompilerError(l, "missing call."); return new StatementCall(l,ls); }
+				| "=" e=expr() <NEWLINE> { new CompilerError(l, "missing set.");return new StatementSet(l,e,ls); }
+			)
+			)
+	} catch (ParseException exc) {
+		//new CompilerError(exc, "Could not read statement\n" + exc);
+		error_skipto(NEWLINE);
+		
+		return statement(ls);
+	}
+}	
+ 
+Statement ifblock(List<Statement> ls):
+{
+	Expression c;
+	List<Statement> b;
+	Expression cond;
+	List<Statement> body;
+	List<Expression> elseifconds = new LinkedList<Expression>();
+	List<List<Statement>> elseifbodys = new LinkedList<List<Statement>>();
+	List<Statement> elsebody = null; 
+	Token t;
+}
+{
+	"if" cond=expr() "then" <NEWLINE>
+	body=statementlist()
+	(
+		"elseif" c=expr() "then" <NEWLINE>	{ elseifconds.add(c); }
+		b=statementlist()					{ elseifbodys.add(b); }
+				
+	)*
+	[
+		"else" <NEWLINE>
+		elsebody=statementlist()
+		[
+			t="elseif"
+				{ 
+				new CompilerError(t, "Encountered " + t + " after \"else\". This makes no sence, does it?"
+								+ "\nThe parser is not yet able to really recover from this error "
+								+ "so ignore all following errors." );	
+				return new StatementLoop(body,ls); 
+			}
+		]
+	]
+	(
+		"endif" <NEWLINE>
+			{return new StatementIf(cond,body,elseifconds,elseifbodys,elsebody, ls); }
+		| (t="endfunction"| t="scope" | t="library"| t="endloop")
+			{ 
+				new CompilerError(t, "Encountered " + t + " in If-Block. Missing endif?"
+								+ "\nThe parser is not yet able to really recover from this error "
+								+ "so ignore all following errors." );	
+				return new StatementLoop(body,ls); 
+			}
+	)
+} 
+ 
+
+List<Parameter> parameterdec():
+{
+	List<Parameter> pl = new LinkedList<Parameter>();
+	Token t;
+	Token n;
+}
+{
+	"nothing" {return pl;}
+	| t=<ID> n=<ID> { pl.add(new Parameter(t, n)); }
+	(
+		"," t=<ID> n=<ID> { pl.add(new Parameter(t, n)); }
+	)*
+	{return pl;}
+}
+
+Statement loopblock(List<Statement> ls):
+{
+	List<Statement> body;
+	Token t;
+}
+{
+	"loop" <NEWLINE>
+		body=statementlist()
+	( 
+		"endloop" <NEWLINE>	
+			{ 
+				return new StatementLoop(body,ls); 
+			}
+		| (t="endfunction"| t="endif" | t="elseif" | t="else" | t="scope" | t="library")
+			{ 
+				new CompilerError(t, "Encountered " + t + " in Loop. Missing endloop?"
+								+ "\nThe parser is not yet able to really recover from this error "
+								+ "so ignore all following errors." );	
+				return new StatementLoop(body,ls); 
+			}
+	)	
+}
+
+
+void GlobalBlock() :
+{
+	
+}
+{
+	<GLOBALS> <NEWLINE>
+	(
+		try {
+			GlobalDeclaration()  <NEWLINE>
+			| <NEWLINE>
+		} catch (ParseException e) {
+			System.out.println("wrong Global Declaration.");
+			error_skipto(NEWLINE);
+			continue;
+		}	
+	)* 
+	<ENDGLOBALS> <NEWLINE>
+}
+
+
+
+
+void GlobalDeclaration():
+{
+	Token varname;
+	Token typename;
+	Global glob;
+	ExprInteger size;
+	List<Integer> arraysize = new LinkedList<Integer>();
+	boolean array = false;
+	boolean constant = false;
+	Expression exp = null;
+	Scopemodifier s;
+}
+{
+	
+		s=scopemodifier()
+		["constant" {constant = true;}]
+		typename=Identifier() 
+		["array" {array = true;}] 
+		varname=Identifier()
+		(
+			"[" size=integer() "]"	{ arraysize.add(size.val); } 
+		)*	
+		[ "=" exp=expr() ]
+		{ 
+			glob = new Global(s, constant, varname, typename, array, arraysize, exp);
+		}
+	
+}
+
+Expression expr():
+{
+	Expression e;
+}
+{
+	e=exprOr()	{ return e; }
+}
+
+Expression exprOr():
+{
+	Expression a;
+	Expression b;
+}
+{
+	a=exprAnd()
+	(
+		LOOKAHEAD(2)
+		"or" b=exprOr()	{ a = new ExprOr(a,b); }
+	)*
+						{ return a; }
+}
+
+Expression exprAnd():
+{
+	Expression a;
+	Expression b;
+}
+{
+	a=exprNot()
+	(
+		LOOKAHEAD(2)
+		"and" b=exprAnd()	{ a = new ExprAnd(a,b); }
+	)*
+							{ return a; }
+}
+
+Expression exprNot():
+{
+	Expression e;
+}
+{
+	"not" e = exprCompare()		{return new ExprNot(e);}
+	|     e = exprCompare()		{return e;}
+}
+
+Expression exprCompare():
+{
+	int op;
+	Expression a;
+	Expression b;
+	Token t=null;
+}
+{
+	
+	a=exprPlusMinus()
+	
+	(
+		(
+			  LOOKAHEAD(2) "==" { op = 0; }
+			| LOOKAHEAD(2) "<=" { op = 1; }
+			| LOOKAHEAD(2) ">=" { op = 2; }
+			| LOOKAHEAD(2) "<"  { op = 3; }
+			| LOOKAHEAD(2) ">"  { op = 4; }
+			| LOOKAHEAD(2) "!="  { op = 5; }
+			| LOOKAHEAD(2) t="="  { op = 6; }
+		)
+		b=exprCompare()	
+		{ 
+			switch (op) {
+				case (0) :
+					a = new ExprEquals(a,b);
+					break;
+				case (1) :
+					a = new ExprLessThanOrEqual(a,b);
+					break;
+				case (2) :
+					a = new ExprGreaterThanOrEqual(a,b);
+					break;
+				case (3) :
+					a = new ExprLessThan(a,b);
+					break;
+				case (4) :
+					a = new ExprGreaterThan(a,b);
+					break;
+				case (5) :
+					a = new ExprUnEqual(a,b);
+					break;
+				case (6) :
+					new CompilerError(t, "You need two equal signs to do equality test.");
+					a = new ExprEquals(a,b);
+					break;
+			}
+		}
+	)*
+								{ return a; }
+}
+
+
+Expression exprPlusMinus():
+{
+    Expression a;
+    Expression b;
+}
+{
+    a=exprMultDiv()
+    (
+       LOOKAHEAD(2)
+        "+" b=exprMultDiv()    { a = new ExprAddition(a,b); }
+    |   "-" b=exprMultDiv()    { a = new ExprSubstraction(a,b); }
+    )*
+                        { return a; }
+}
+Expression exprMultDiv():
+{
+    Expression a;
+    Expression b;
+}
+{
+    a=unary()
+    (
+    	LOOKAHEAD(2)
+        "*" b=unary()    { a = new ExprMultiplication(a,b); }
+    |   "/" b=unary()    { a = new ExprDivision(a,b); }
+    )*
+                        { return a; }
+}
+Expression unary():
+{
+    Expression a;
+}
+{
+    "-" a=element()     { return new ExprNegative(a); }
+|   a=element()         { return a; }
+}
+Expression element():
+{
+    Token t;
+    Expression a;
+}
+{
+    a=primary()         { return a; }
+|   "(" a=expr() ")"	{ return a; }
+				
+}
+
+Expression primary():
+{
+	Expression a;
+	Token t;
+	ExprInteger i;
+	ExprReal d;
+}
+{
+	d=real()		{return d;}
+|	i=integer()		{return i;}
+|	t=<STRING>		{return new ExprString(t);}
+|	t=<BOOLEAN>		{return new ExprBoolean(t);}
+|	a=dynamic()		{return a;}
+|	a=exprcode()	{return a;}
+|	t=<NULL>		{return new ExprNull(t);}
+}
+
+Expression exprcode():
+{
+	Token n;
+	Token nn = null;
+}
+{
+	"function" n=<ID>
+	[ "." nn=<ID>]
+		{ 
+			if (nn==null) {
+				return new ExprCodeFunction(n);
+			} else {
+				return new ExprCodeMethod(n,nn);
+			}
+		}
+}
+
+/*
+Expression dynamic():
+{
+	Token t;
+	boolean function = false; 
+	boolean array = false;
+	List<Expression> arrayindexes = new LinkedList<Expression>();
+	List<Expression> parameters = new LinkedList<Expression>();
+	Expression e;
+	Expression member;
+	boolean usingthis = true;
+}
+{
+	[
+		t=Identifier()
+		[ 
+			(
+				"(" e=expr() {function=true; parameters.add(e);}
+				(
+					"," e=expr() {parameters.add(e)}
+				)*
+			)
+			|(
+				(
+					"[" e=expr() "]" {array=true; arrayindexes.add(e)}
+				)+		
+			)
+		]
+		{
+			if (function) {
+				e = new ExprFunction(t.toString(), parameters);
+			} else {
+				String ts = t.toString();
+				if (ts.equals("this")) {
+					e = new ExprThis();
+				} else {
+					e = new ExprVariable(ts);
+				}
+			}
+			usingthis = false;
+		}
+	]
+	{
+		if (usingthis) {
+			e = new ExprThis();
+		}
+	}
+	( 
+		"."
+		member=member()	{e = new ExprMember(e,member);}
+	)*
+	{return e;}
+}
+*/
+
+Expression dynamic():
+{
+	Token t;
+	boolean function = false; 
+	boolean array = false;
+	List<Expression> arrayindexes = new LinkedList<Expression>();
+	List<Expression> parameters = new LinkedList<Expression>();
+	Expression e;
+	Expression member;
+	boolean usingthis = false;
+}
+{
+	[
+		"."	{usingthis=true;}
+	]	
+	t=Identifier()
+	[ 
+		LOOKAHEAD(2)
+		( /*function */
+			"(" e=expr() {function=true; parameters.add(e);}
+			(
+				LOOKAHEAD(2)
+				"," e=expr() { parameters.add(e); }
+			)*
+			")"
+		)
+		|( /* function without parameters*/
+			"(" ")" {function=true;}
+		)
+		|( /*array*/
+			( 
+				"[" e=expr() "]" {array=true; arrayindexes.add(e); }
+			)+		
+		)
+	]
+	{
+		if (function) {
+			e = new ExprFunction(t, parameters);
+		} else if (array) { 
+			e = new ExprArrayVariable(t, arrayindexes);
+		} else { //Variable
+			String ts = t.toString();
+			if (ts.equals("this")) {
+				e = new ExprThis();
+			} else {
+				e = new ExprVariable(t);
+			}
+		}
+		if (usingthis) {
+			e = new ExprMember(new ExprThis(), e);
+		}
+	}
+	(
+		LOOKAHEAD(2)
+		"." member=member()	{e = new ExprMember(e, member);}
+	)*
+	
+			{ return e; }
+}
+
+Expression member():
+{
+	Token t;
+	boolean function = false; 
+	boolean array = false;
+	List<Expression> arrayindexes = new LinkedList<Expression>();
+	List<Expression> parameters = new LinkedList<Expression>();
+	Expression e;
+}
+{
+	t=Identifier()
+	[ 
+		( /*function */
+			
+			"(" e=expr() {function=true; parameters.add(e);}
+			(
+				LOOKAHEAD(2)
+				"," e=expr() { parameters.add(e); }
+			)*
+		)
+		|( /*array*/
+			(
+				"[" e=expr() "]" {array=true; arrayindexes.add(e);}
+			)+		
+		)
+	]
+	{
+		if (function) {
+			e = new ExprFunction(t, parameters);
+		} else if (array) { 
+			e = new ExprArrayVariable(t, arrayindexes);
+		} else { //Variable
+			e = new ExprVariable(t);
+		}
+	}
+	
+	{ return e; }
+}
+
+
+ExprInteger integer():
+{
+	Token t;
+	int x;
+}
+{
+	t=<OCTALINT>		{ x=Integer.parseInt(t.toString().substring(1),8); return new ExprInteger(t, x);}
+|	t=<ASCIIINT4>		{
+							x = 0;
+							String s = t.toString();
+							for (int i=1; i<=4; i++) {
+								x=x*256+s.charAt(i);
+							}
+							return new ExprInteger(t, x);
+						}
+|	t=<ASCIIINT1>		{ return new ExprInteger(t, t.image.charAt(1)); }
+|	t=<HEXADECIMALINT>	{x=Integer.parseInt(t.toString().substring(2));return new ExprInteger(t, x);}
+|	t=<DECIMALINT>		{x=Integer.parseInt(t.toString());return new ExprInteger(t, x);}
+}
+
+ExprReal real():
+{
+	Token t;
+}
+{
+	t=<REAL> { double d=Double.parseDouble(t.toString()); return new ExprReal(t);}
+}
+
+Token Identifier():
+{
+	Token t;
+}
+{
+	t=<ID>
+	{ return t; }
+}
+
+void consumeNewlines():
+{
+}
+{
+	(<NEWLINE>)*
+}
+
+
+
+
+SKIP : {" "|"\t"}
+
+SPECIAL_TOKEN : /* COMMENTS */
+{
+  <SINGLE_LINE_COMMENT: "//" (~["\n","\r"])* ("\n"|"\r"|"\r\n")>
+}
+
+TOKEN :
+{
+  < GLOBALS : "globals" >
+| < ENDGLOBALS : "endglobals" >
+|  <  NEWLINE : ("\n"|"\r")+ >	
+| <  OCTALINT : "0" (["0"-"7"])+ >
+| <  DECIMALINT : ["1"-"9"] (["0"-"9"])* | "0" >
+| <  HEXADECIMALINT : ("0x"|"0X") (["0"-"9","a"-"f","A"-"F"])+ >
+| <  REAL : ((["0"-"9"])+ "." (["0"-"9"])* | (["0"-"9"])* "." (["0"-"9"])+)
+   (["e","E"] (["-","+"])? (["0"-"9"])+)? (["f","F","l","L"])? >
+| <  ASCIIINT4 : "'" ~["'"] ~["'"] ~["'"] ~["'"] "'" >
+| <  ASCIIINT1 : "'" ~["'"] "'" >
+| < BOOLEAN : "true"|"false" >
+| < NULL : "null">
+| < THIS : "this">
+| <  CHARACTER : "'"
+   (   (~["'","\\","\n","\r"])
+   | ("\\" (
+             ["n","t","v","b","r","f","a","\\","?","'","\""]
+            |
+             "0" (["0"-"7"])*
+            |
+             ["1"-"9"] (["0"-"9"])*
+            |
+             ("0x" | "0X") (["0"-"9","a"-"f","A"-"F"])+
+           )
+     )
+   )
+   "'" >
+| <  STRING : "\""
+   ( ( ~["\"","\\","\n","\r"])
+   | ("\\" (
+             ["n","t","v","b","r","f","a","\\","?","'","\""]
+            |
+             "0" (["0"-"7"])*
+            |
+             ["1"-"9"] (["0"-"9"])*
+            |
+             ("0x" | "0X") (["0"-"9","a"-"f","A"-"F"])+
+           )
+     )
+   )*
+   "\"" >
+| <  ID : ["a"-"z","A"-"Z"] (["a"-"z","A"-"Z","0"-"9","_"])* ["a"-"z","A"-"Z","0"-"9"] | ["a"-"z","A"-"Z"] >
+}

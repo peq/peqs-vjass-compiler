@@ -37,6 +37,7 @@ public class ExprAnd extends ExprBinaryOp implements Expression {
 
 //	@Override
 	public void print(StringBuilder sb) {
+		// (left and right)
 		sb.append("(");
 		left.print(sb);
 		sb.append(" and ");

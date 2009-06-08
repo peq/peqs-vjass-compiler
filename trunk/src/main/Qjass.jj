@@ -120,7 +120,9 @@ void scopecontent() :
 
 void struct():
 {
-	
+	Token name;
+	Token ext = null;
+	ExprInteger indexspace = null;
 }
 {
 	"struct" name=<ID> 

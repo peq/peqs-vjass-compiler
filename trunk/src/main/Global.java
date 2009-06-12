@@ -129,7 +129,7 @@ public class Global extends Variable{
 		}
 		
 		for (Global g : s.GlobalList) {
-			System.out.println("	adding var " + g.name);
+			//System.out.println("	adding var " + g.name);
 			allGlobals.add(g);
 		}
 		s.globalsprinted = true;

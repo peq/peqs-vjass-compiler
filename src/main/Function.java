@@ -330,6 +330,10 @@ public class Function implements Variablespace, WithPosition, Compilable {
 	}
 	
 	public static void reorderAll() {
+		if (functionMain == null) {
+			new CompilerError(new Position(0,0,1,0), "Missing Main-Function");
+			return;
+		}
 		Function.functionMain.reorder();
 	}
 

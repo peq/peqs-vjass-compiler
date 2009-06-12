@@ -24,7 +24,18 @@ public class StatementSet extends StatementAbstract {
 	
 	public Statement compile() {
 		right = right.compile();
+		Expression oldleft = left;
 		left = left.compile();
+		
+		if (left == null) {
+			new CompilerError(this, "could not compile right side of set Statement.");
+			return this;	
+		}
+		
+		if (left.getType() == null) {
+			new CompilerError(this, "could not find Type.");
+			return this;		
+		}
 		if (!right.isSubTypeOf(left.getType())) {
 			StringBuilder sb = new StringBuilder();
 			print(sb);

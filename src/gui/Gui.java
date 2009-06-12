@@ -147,6 +147,7 @@ class ErrorWindow {
 		
 		
 		errorpane = new JTextPane();
+		errorpane.setText("compiling... \nPlease wait.");
 		errorpane.setEditable(false);
 		final JScrollPane scroll_errorpane = new JScrollPane(errorpane);
 		c.gridx = 0;
@@ -251,8 +252,14 @@ class ErrorWindow {
 		for (CompilerError err : CompilerError.errors) {
         	if (err.isSyntaxError) {
     			main.Position pos = err.getPosition();
-    			String line = ErrorWindow.docsb.substring(
-    					ErrorWindow.linepos.get(pos.rowstart), ErrorWindow.linepos.get(pos.rowend+1));
+    			String line = "";
+    			try {
+    				line = ErrorWindow.docsb.substring(
+    						ErrorWindow.linepos.get(pos.rowstart), ErrorWindow.linepos.get(pos.rowend+1));
+				} catch (ArrayIndexOutOfBoundsException e) {
+					System.out.println("Could not get linepos." + pos);
+					continue;
+				}
     			new SyntaxErrorAnalyser(err, line);    			
     		}
         }

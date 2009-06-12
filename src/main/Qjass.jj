@@ -58,7 +58,10 @@ void error_skipto(int kind) {
   Token t;
   do {
     t = getNextToken();
-  } while (t.kind != kind);
+    if (t.kind == EOF) {
+      // TODO add better exception here
+      throw new CriticalParseError("unexpected EOF.");    }
+  } while ((t.kind != kind));
    
 	consumeNewlines();
    
@@ -79,12 +82,14 @@ void Input() :
   		System.out.println("Error in Input, could not read File...");
 		error_skipto(NEWLINE);
 		File();
-	}
+	} catch (CriticalParseError e) {
+	  System.out.println("Unexpected EOF.");
+	  CompilerError err = new CompilerError(e, "Unexpected EOF :\n");	}
 }
 
 
 void File() :
-{}
+{int i = 0;}
 {
 	{statusStack.push(STATUS_FILE);}
 	( 
@@ -96,7 +101,7 @@ void File() :
 			| nativefunctiondec()
 			| typedec()
 			| <NEWLINE> 
-			| <EOF> { return; /*end of file*/}
+			| <EOF> { System.out.println("rofl");i++;if (i >10) System.exit(0);return; /*end of file*/}
 			| error_skipto(NEWLINE) 
 				
 	)* 
@@ -143,8 +148,10 @@ void structcontent():
 {
 }
 {
-	structmemberdec()
-	| methoddec()
+	(	  	structmemberdec()
+		| methoddec()
+		| <NEWLINE>
+	)*
 }
 
 void structmemberdec():
@@ -170,6 +177,7 @@ void structmemberdec():
 			"[" size=integer() "]"	{ arraysize.add(size.val); } 
 		)*	
 		[ "=" exp=expr() ]
+		<NEWLINE>
 		{ 
 			glob = new Global(s, constant, varname, typename, array, arraysize, exp);
 		}
@@ -203,12 +211,12 @@ Function methoddec():
 	locals=functionlocals()
 	body=statementlist()
 	(
-		"endmethod"
+		"endmethod" <NEWLINE>
 			{	
 				func.finish(locals, body); 
 				return func;
 			}
-		| (t="scope"|t="library"|t="struct"|t="function"|t="method")
+		| (t="scope"|t="library"|t="struct"|t="function"|t="method") <NEWLINE>
 			{	
 				new CompilerError(t, "Encountered " + t + " in Method. Missing endfunction?"
 								+ "\nThe parser is not yes able to really recover from this error "
@@ -377,7 +385,7 @@ List<Statement> statementlist():
 }
 {
 	(
-		s=statement(ls) { ls.add(s); }
+		s=statement(ls) { if (s!=null) ls.add(s); }
 		| <NEWLINE>
 	)*
 	[
@@ -392,6 +400,7 @@ Statement statement(List<Statement> ls):
 	Statement s;
 	Expression e;
 	Expression l;
+	Token t;
 }
 {
 	try {
@@ -409,8 +418,8 @@ Statement statement(List<Statement> ls):
 	} catch (ParseException exc) {
 		//new CompilerError(exc, "Could not read statement\n" + exc);
 		error_skipto(NEWLINE);
-		
-		return statement(ls);
+		return null;
+		///return statement(ls);
 	}
 }	
  
@@ -555,7 +564,8 @@ Expression expr():
 	Expression e;
 }
 {
-	e=exprOr()	{ return e; }
+		  e=exprOr()	{ return e; }
+
 }
 
 Expression exprOr():
@@ -933,10 +943,34 @@ void consumeNewlines():
 
 SKIP : {" "|"\t"}
 
-SPECIAL_TOKEN : /* COMMENTS */
+
+MORE : /* COMMENTS */
 {
-  <SINGLE_LINE_COMMENT: "//" (~["\n","\r"])* ("\n"|"\r"|"\r\n")>
+  "//" : WITHIN_COMMENT
 }
+
+<WITHIN_COMMENT> SPECIAL_TOKEN :
+{
+    < "\n" >
+        {
+            // Exclude "\n"
+            input_stream.backup(1);
+            //matchedToken.image = matchedToken.image.substring(0, matchedToken.image.length()-1);
+        }
+        : DEFAULT
+}
+
+
+<WITHIN_COMMENT> MORE :
+{
+    < ~[] >
+}
+
+
+
+
+
+
 
 TOKEN :
 {

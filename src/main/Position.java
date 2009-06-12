@@ -1,6 +1,6 @@
 package main;
 
-public class Position {
+public class Position implements WithPosition {
 	public String file ="";
 	public int columnstart;
 	public int columnend;
@@ -75,5 +75,20 @@ public class Position {
 		// OPTIMIZE get whole line
 		p.columnend = 100;
 		return p;
+	}
+
+	@Override
+	public Position getPosition() {
+		return this;
+	}
+
+	@Override
+	public void setPosition(Position p) {
+		file = p.file;
+		columnstart = p.columnstart;
+		columnend = p.columnend;
+		rowstart = p.rowstart;
+		rowend = p.rowend;
+		
 	}
 }

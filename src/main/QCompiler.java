@@ -230,6 +230,7 @@ public class QCompiler {
 		
 		//reorder functions
 		Scope.addInitializerFakeCalls();
+		
 		Function.reorderAll();
 		
 		
